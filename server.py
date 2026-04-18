@@ -60,7 +60,7 @@ HTML_PATH = (
     else (_HTML_LOCAL if os.path.isfile(_HTML_LOCAL) else _HTML_BUNDLE)
 )
 _DB_CONFIG_FILE = os.path.join(BASE_DIR, "center_db_config.json")
-PORT = int(os.environ.get('PORT', 8080))
+PORT = int(os.environ.get('PORT', 5000))
 
 _REV_COND = threading.Condition()
 _DB_REV_MS = 0  # updated by writes + file watcher
@@ -1572,7 +1572,7 @@ def route(conn, method, resource, action, body, parts):
                 since = int(body.get("since") or 0)
             except Exception:
                 since = 0
-            deadline = time.time() + 25.0
+            deadline = time.time() + 15.0
             with _REV_COND:
                 while int(_DB_REV_MS) <= since and time.time() < deadline:
                     _REV_COND.wait(timeout=1.0)
@@ -2634,6 +2634,7 @@ def main():
     # start_db_file_watcher()
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server.daemon_threads = True
     import socket as _sock
     try:
         local_ip = _sock.gethostbyname(_sock.gethostname())
