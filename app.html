@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes" id="meta-viewport">
 <title>سنتر الدروس الخصوصية</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&display=swap');
@@ -220,6 +220,60 @@ textarea.fc{resize:vertical;min-height:72px}
 .fw7{font-weight:700}.fw9{font-weight:900}.fs12{font-size:12px}.fs13{font-size:13px}
 .tg{color:var(--green)}.tr{color:var(--red)}.tb{color:var(--blue)}.tm{color:var(--muted)}
 .mt16{margin-top:16px}.mb16{margin-bottom:16px}.hidden{display:none!important}
+
+/* ═══ MOBILE RESPONSIVE ═══ */
+@media (max-width: 768px) {
+  .topnav{top:auto!important;right:0!important;left:0!important;bottom:0!important;width:100%!important;height:58px!important;box-shadow:0 -2px 12px rgba(0,0,0,.18)!important}
+  .tn-inner{flex-direction:row!important;height:58px!important;align-items:center!important;padding:0 4px!important;gap:0!important;overflow-x:auto!important;overflow-y:hidden!important}
+  .tn-brand,.tn-user,.nl{display:none!important}
+  .tn-scroll{flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;flex:1!important;gap:2px!important;padding:0!important;align-items:center!important;scrollbar-width:none!important}
+  .tn-scroll::-webkit-scrollbar{display:none!important}
+  .ns{flex-shrink:0!important}
+  .ni{flex-direction:column!important;padding:4px 10px!important;font-size:9px!important;gap:2px!important;border-radius:8px!important;min-width:52px!important;align-items:center!important}
+  .ni .ic{font-size:18px!important;width:auto!important}
+  .lout{display:flex!important;flex-direction:column!important;align-items:center!important;font-size:9px!important;padding:4px 10px!important;color:rgba(255,255,255,.6)!important;min-width:46px!important}
+  .sbadge{font-size:7px!important;padding:0 3px!important}
+  .main{margin-right:0!important;width:100%!important;margin-top:0!important;padding-bottom:66px!important}
+  body.layout-top .main{margin-top:0!important;padding-bottom:66px!important}
+  .topbar{padding:0 14px!important;height:52px!important}
+  .topbar h1{font-size:15px!important}
+  .dpill{display:none!important}
+  .topbar-r{gap:6px!important}
+  .content{padding:12px!important}
+  .stats{grid-template-columns:repeat(2,1fr)!important;gap:10px!important}
+  .scic{width:38px!important;height:38px!important;font-size:16px!important}
+  .scv{font-size:20px!important}
+  .scl{font-size:11px!important}
+  .sc{padding:13px 14px!important}
+  .g2,.g3,.fg{grid-template-columns:1fr!important}
+  .full{grid-column:1!important}
+  .tw{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
+  table{min-width:520px!important}
+  th,td{padding:8px 10px!important;font-size:12px!important}
+  .mo{padding:0!important;align-items:flex-end!important}
+  .modal{width:100%!important;max-width:100%!important;border-radius:20px 20px 0 0!important;max-height:92vh!important}
+  .mh{padding:14px 16px!important}
+  .mb{padding:14px 16px!important}
+  .mf{padding:12px 16px!important;gap:8px!important;flex-wrap:wrap!important}
+  .mf .btn{flex:1!important;justify-content:center!important;min-width:100px!important}
+  .acard{flex-direction:column!important;width:100%!important;max-width:100%!important;border-radius:0!important;margin:0!important;box-shadow:none!important;min-height:100dvh!important}
+  .acard-right{display:none!important}
+  .acard-left{padding:28px 22px!important}
+  #auth{padding:0!important;align-items:stretch!important}
+  #auth-topbar{padding:0 16px!important}
+  .btn{font-size:12px!important;padding:8px 13px!important}
+  .btn-sm{font-size:11px!important;padding:5px 10px!important}
+  .filters{gap:7px!important}
+  .card{border-radius:12px!important}
+  .ch{padding:12px 14px!important;flex-wrap:wrap!important;gap:8px!important}
+  .cb{padding:14px!important}
+  #toast{bottom:72px!important;font-size:13px!important;max-width:90vw!important;white-space:normal!important;text-align:center!important}
+}
+@media (max-width:380px){
+  .ni{min-width:44px!important;padding:4px 6px!important;font-size:8px!important}
+  .stats{grid-template-columns:1fr 1fr!important;gap:8px!important}
+  .content{padding:10px!important}
+}
 
 /* ═══ RECEIPT PRINT ═══ */
 @media print{
@@ -766,6 +820,50 @@ textarea.fc{resize:vertical;min-height:72px}
           </div>
         </div>
 
+        <!-- حجم الشاشة / الخط -->
+        <div class="card" style="margin-bottom:18px">
+          <div class="ch"><span class="ct">📱 حجم الشاشة والخط</span></div>
+          <div class="cb">
+            <p class="fs12 tm" style="margin-bottom:16px">اضبط حجم العرض والخط حسب جهازك</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
+              <div>
+                <label class="fs12 tm" style="display:block;font-weight:800;margin-bottom:8px">🔍 تكبير/تصغير الصفحة</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <button class="btn btno btn-sm" onclick="changeZoom(-10)" style="width:36px;height:36px;padding:0;font-size:18px;flex-shrink:0">−</button>
+                  <div style="flex:1;text-align:center">
+                    <div id="zoom-val" style="font-size:18px;font-weight:900;color:var(--p)">100%</div>
+                    <div class="fs12 tm">نسبة التكبير</div>
+                  </div>
+                  <button class="btn btno btn-sm" onclick="changeZoom(+10)" style="width:36px;height:36px;padding:0;font-size:18px;flex-shrink:0">+</button>
+                </div>
+                <input type="range" id="zoom-range" min="70" max="130" step="5" value="100"
+                  oninput="setZoom(+this.value)"
+                  style="width:100%;margin-top:10px;accent-color:var(--p)">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px"><span>70%</span><span>100%</span><span>130%</span></div>
+              </div>
+              <div>
+                <label class="fs12 tm" style="display:block;font-weight:800;margin-bottom:8px">🔤 حجم الخط</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <button class="btn btno btn-sm" onclick="changeFontSize(-1)" style="width:36px;height:36px;padding:0;font-size:18px;flex-shrink:0">−</button>
+                  <div style="flex:1;text-align:center">
+                    <div id="font-val" style="font-size:18px;font-weight:900;color:var(--p)">14px</div>
+                    <div class="fs12 tm">حجم الخط الأساسي</div>
+                  </div>
+                  <button class="btn btno btn-sm" onclick="changeFontSize(+1)" style="width:36px;height:36px;padding:0;font-size:18px;flex-shrink:0">+</button>
+                </div>
+                <input type="range" id="font-range" min="11" max="18" step="1" value="14"
+                  oninput="setFontSize(+this.value)"
+                  style="width:100%;margin-top:10px;accent-color:var(--p)">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px"><span>صغير</span><span>عادي</span><span>كبير</span></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="btn btno btn-sm" onclick="resetDisplaySettings()">↺ إعادة تعيين</button>
+              <span class="fs12 tm" style="align-self:center">يُحفظ تلقائياً على هذا الجهاز</span>
+            </div>
+          </div>
+        </div>
+
         <!-- ثيمات الألوان -->
         <div class="card" style="margin-bottom:18px">
           <div class="ch"><span class="ct">🎨 ثيمات الألوان</span></div>
@@ -1295,12 +1393,10 @@ textarea.fc{resize:vertical;min-height:72px}
 //  API
 // ══════════════════════════════════════════════════
 const API = (()=>{
-  // على Railway أو أي سيرفر: استخدم نفس الـ origin تلقائياً
   const origin = window.location.origin;
   if(origin && !origin.startsWith('file:') && !origin.startsWith('null')){
     return origin + '/api';
   }
-  // fallback للتطوير المحلي فقط
   return 'http://127.0.0.1:7788/api';
 })();
 let _reloadAllTimer = null;
@@ -4046,6 +4142,65 @@ function renderSubPill(){
   });
 }
 
+// ══════════════════════════════════════════════════
+//  DISPLAY SETTINGS (zoom + font size)
+// ══════════════════════════════════════════════════
+function setZoom(val){
+  val = Math.min(130, Math.max(70, val));
+  document.documentElement.style.fontSize = (val/100 * 16) + 'px';
+  // scale the main content area
+  const main = document.querySelector('.main');
+  if(main){ main.style.zoom = (val/100); }
+  localStorage.setItem('app_zoom', val);
+  const el = document.getElementById('zoom-val');
+  const rng = document.getElementById('zoom-range');
+  if(el) el.textContent = val + '%';
+  if(rng) rng.value = val;
+}
+function changeZoom(delta){
+  const cur = parseInt(localStorage.getItem('app_zoom')||'100');
+  setZoom(cur + delta);
+}
+function setFontSize(val){
+  val = Math.min(18, Math.max(11, val));
+  document.documentElement.style.setProperty('--base-fs', val + 'px');
+  // apply to body text
+  document.body.style.fontSize = val + 'px';
+  localStorage.setItem('app_font_size', val);
+  const el = document.getElementById('font-val');
+  const rng = document.getElementById('font-range');
+  if(el) el.textContent = val + 'px';
+  if(rng) rng.value = val;
+}
+function changeFontSize(delta){
+  const cur = parseInt(localStorage.getItem('app_font_size')||'14');
+  setFontSize(cur + delta);
+}
+function resetDisplaySettings(){
+  setZoom(100);
+  setFontSize(14);
+  toast('تم إعادة تعيين الحجم','ok');
+}
+function syncDisplaySettingsUI(){
+  const z = parseInt(localStorage.getItem('app_zoom')||'100');
+  const f = parseInt(localStorage.getItem('app_font_size')||'14');
+  const zv = document.getElementById('zoom-val');
+  const zr = document.getElementById('zoom-range');
+  const fv = document.getElementById('font-val');
+  const fr = document.getElementById('font-range');
+  if(zv) zv.textContent = z + '%';
+  if(zr) zr.value = z;
+  if(fv) fv.textContent = f + 'px';
+  if(fr) fr.value = f;
+}
+(function initDisplaySettings(){
+  const z = parseInt(localStorage.getItem('app_zoom')||'100');
+  const f = parseInt(localStorage.getItem('app_font_size')||'14');
+  if(z !== 100) setZoom(z);
+  if(f !== 14) setFontSize(f);
+})();
+
+
 (function initTheme(){
   const saved = localStorage.getItem('app_theme');
   if(saved) applyTheme(saved);
@@ -4094,6 +4249,7 @@ async function renderSettings(){
   sv('set-due',SETTINGS.due_day||5);
   renderThemeGrid();
   renderLayoutGrid();
+  syncDisplaySettingsUI();
   try{
     const vr = await api('/meta/version');
     if(vr.ok && vr.data && vr.data.db){
