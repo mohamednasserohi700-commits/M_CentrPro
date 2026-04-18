@@ -2640,7 +2640,7 @@ def main():
         local_ip = _sock.gethostbyname(_sock.gethostname())
     except Exception:
         local_ip = "127.0.0.1"
-    url = f"http://0.0.0.0:{PORT}"
+    url = f"http://127.0.0.1:{PORT}"
     url_net = f"http://{local_ip}:{PORT}"
     print(f"الرابط المحلي:  {url}")
     print(f"الرابط الشبكي:  {url_net}")
