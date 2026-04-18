@@ -60,7 +60,7 @@ HTML_PATH = (
     else (_HTML_LOCAL if os.path.isfile(_HTML_LOCAL) else _HTML_BUNDLE)
 )
 _DB_CONFIG_FILE = os.path.join(BASE_DIR, "center_db_config.json")
-PORT = int(os.environ.get('PORT', 5000))
+PORT = int(os.environ.get('PORT', 8080))
 
 _REV_COND = threading.Condition()
 _DB_REV_MS = 0  # updated by writes + file watcher
@@ -2639,7 +2639,7 @@ def main():
         local_ip = _sock.gethostbyname(_sock.gethostname())
     except Exception:
         local_ip = "127.0.0.1"
-    url = f"http://127.0.0.1:{PORT}"
+    url = f"http://0.0.0.0:{PORT}"
     url_net = f"http://{local_ip}:{PORT}"
     print(f"الرابط المحلي:  {url}")
     print(f"الرابط الشبكي:  {url_net}")
