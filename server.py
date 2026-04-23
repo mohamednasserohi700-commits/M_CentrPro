@@ -152,6 +152,8 @@ _BACKUP_TABLES_ORDER = [
     "followups",
     "attendance",
     "expenses",
+    "notifications",
+    "notification_reads",
     "settings",
     "users",
 ]
@@ -165,7 +167,7 @@ DEV_MASTER_USERNAME = "administrator"
 DEV_MASTER_DEFAULT_PASSWORD = "3000330210"
 
 # بصمة إصدار للسيرفر (للتأكد إن النسخة الصحيحة شغالة)
-SERVER_BUILD = "center-server-refunded-status-revert-guard-v7"
+SERVER_BUILD = "center-server-notifications-att-wa-v8"
 
 # ─── DATABASE SETUP ──────────────────────────────────
 def get_db():
@@ -397,6 +399,58 @@ def _course_has_class_on_date_py(days_str: Optional[str], dstr: str) -> bool:
         return False
     day = AR_DAY_NAMES_PY[_js_weekday_index_py(d)]
     return day in str(days_str)
+
+
+def _norm_subject(s: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip()).lower()
+
+
+def _teacher_subject_tokens(subject: Optional[str]) -> List[str]:
+    if not subject or not str(subject).strip():
+        return []
+    parts = re.split(r"[,،/]+", str(subject))
+    out: List[str] = []
+    for p in parts:
+        t = _norm_subject(p)
+        if t:
+            out.append(t)
+    return out
+
+
+def _teacher_matches_course_name_row(teacher_row: sqlite3.Row, course_name: str) -> bool:
+    cn = _norm_subject(course_name)
+    if not cn:
+        return True
+    toks = _teacher_subject_tokens(teacher_row["subject"] if teacher_row else None)
+    if not toks:
+        return False
+    if cn in toks:
+        return True
+    for t in toks:
+        if t in cn or cn in t:
+            return True
+    return False
+
+
+def _validate_teacher_matches_course_subject(
+    c, teacher_id: Optional[int], course_name: str
+) -> Optional[str]:
+    """يُستخدم عند ربط مدرّس بمجموعة أو معلم تسجيل بطالب — مادة المدرّس يجب أن تتوافق مع اسم مادة المجموعة."""
+    if not teacher_id:
+        return None
+    row = c.execute("SELECT id, subject FROM teachers WHERE id=?", (int(teacher_id),)).fetchone()
+    if not row:
+        return "المدرّس غير موجود"
+    cn = (course_name or "").strip()
+    if not cn:
+        return None
+    if _teacher_matches_course_name_row(row, cn):
+        return None
+    return (
+        "⚠️ المدرّس المختار غير مطابق لمادة المجموعة «"
+        + cn
+        + "» — عيّن «المادة» في بطاقة المدرّس أو اختر مدرّساً لمادّة المجموعة"
+    )
 
 
 def _per_session_totals(c, stu: sqlite3.Row) -> Tuple[float, float, int]:
@@ -720,10 +774,100 @@ def _migrate_schema(c) -> None:
             c.execute("UPDATE payments SET receipt_no=? WHERE id=?", (rno, pid))
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute("ALTER TABLE students ADD COLUMN link_group TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        for row in c.execute("SELECT id, perms FROM users WHERE role='receptionist'").fetchall():
+            pr = json.loads(row["perms"] or "{}")
+            changed = False
+            if not int(pr.get("courses") or 0):
+                pr["courses"] = 1
+                changed = True
+            if not int(pr.get("teachers") or 0):
+                pr["teachers"] = 1
+                changed = True
+            if changed:
+                c.execute(
+                    "UPDATE users SET perms=? WHERE id=?",
+                    (json.dumps(pr, ensure_ascii=False), int(row["id"])),
+                )
+    except Exception:
+        pass
+    try:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT DEFAULT 'info',
+            title TEXT NOT NULL,
+            message TEXT,
+            visible_roles TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )"""
+        )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS notification_reads (
+            notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL,
+            read_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (notification_id, user_id)
+        )"""
+        )
+    except sqlite3.OperationalError:
+        pass
+
 
 # ─── HELPERS ─────────────────────────────────────────
 def rows_to_list(rows):
     return [dict(r) for r in rows]
+
+
+def _notify_insert(
+    c,
+    kind: str,
+    title: str,
+    message: str,
+    visible_roles: List[str],
+) -> None:
+    try:
+        c.execute(
+            "INSERT INTO notifications (kind,title,message,visible_roles) VALUES (?,?,?,?)",
+            (
+                kind or "info",
+                title,
+                message or "",
+                json.dumps(visible_roles, ensure_ascii=False),
+            ),
+        )
+    except Exception:
+        pass
+
+
+def _user_can_see_notification(
+    kind: str,
+    visible_roles_json: Optional[str],
+    role: str,
+    perms: Dict[str, Any],
+) -> bool:
+    role = (role or "").strip()
+    if role in ("admin", "dev_master"):
+        return True
+    try:
+        vr = json.loads(visible_roles_json or "[]")
+    except Exception:
+        vr = []
+    if not isinstance(vr, list):
+        vr = []
+    if role in vr:
+        return True
+    k = (kind or "").strip()
+    if k == "finance" and bool(perms.get("payments")):
+        return True
+    return False
 
 def ok(data=None, msg="success"):
     return {"ok": True, "msg": msg, "data": data}
@@ -1280,7 +1424,28 @@ def _refund_add_execute(c, body):
     rid = c.lastrowid
     if pid:
         _apply_refund_to_payment(c, pid, amt)
-    return ok({"id": rid}, "تم تسجيل الاسترجاع")
+    crow = c.execute(
+        """SELECT r.*, s.name AS student_name, s.code AS student_code,
+           c.name AS course_name, c.group_name AS group_name
+           FROM refunds r
+           LEFT JOIN students s ON r.student_id = s.id
+           LEFT JOIN courses c ON s.course_id = c.id
+           WHERE r.id = ?""",
+        (rid,),
+    ).fetchone()
+    stu_name = (crow["student_name"] if crow else "") or ""
+    msg_nf = f"{stu_name}: {amt:g} {body.get('note') or ''}".strip()
+    if body.get("by"):
+        msg_nf += f" — بواسطة {body.get('by')}"
+    _notify_insert(
+        c,
+        "finance",
+        "استرجاع مبلغ",
+        msg_nf[:900],
+        ["admin", "dev_master", "accountant"],
+    )
+    payload = rows_to_list([crow])[0] if crow else {"id": rid}
+    return ok(payload, "تم تسجيل الاسترجاع")
 
 
 def _assign_payment_receipt_no(c, pay_id: int, body) -> Tuple[Optional[str], Optional[str]]:
@@ -1359,6 +1524,7 @@ def handle_api(method, path, body, headers):
                         "backup",
                         "meta",
                         "license",
+                        "notifications",
                     )
                 )
             )
@@ -1412,6 +1578,7 @@ def route(conn, method, resource, action, body, parts):
         "refund",
         "refund_save",
         "revert",
+        "mark_read",
     )
     if is_write and resource not in ("auth",):
         caller_id = body.get("caller_id")  # كل طلبات الكتابة ترسل caller_id
@@ -1551,6 +1718,48 @@ def route(conn, method, resource, action, body, parts):
                 return err(lerr)
             return ok({"serial": serial}, "success")
 
+        # ملخص ترخيص الجهاز (للشريط العلوي): المتبقي + مدة السريال بالأيام
+        if action == "my" and method == "GET":
+            caller_id = body.get("caller_id")
+            if not caller_id:
+                return err("غير مصرح — يرجى تسجيل الدخول")
+            try:
+                uid = int(caller_id)
+            except (TypeError, ValueError):
+                return err("غير مصرح")
+            crow = c.execute("SELECT id, active FROM users WHERE id=?", (uid,)).fetchone()
+            if not crow or not int(crow["active"] or 0):
+                return err("غير مصرح")
+            ls = get_license_status(conn)
+            perpetual = bool(ls.get("perpetual"))
+            exp = (ls.get("expires_at") or "").strip()
+            days_left = None
+            if not perpetual and exp:
+                exp10 = exp[:10]
+                if exp10 != "9999-12-31":
+                    try:
+                        exp_d = date.fromisoformat(exp10)
+                        days_left = (exp_d - date.today()).days
+                    except ValueError:
+                        days_left = None
+            sub_raw = (get_setting(conn, "license_subscription_days", "") or "").strip()
+            subscription_days = None
+            if sub_raw != "":
+                try:
+                    subscription_days = int(sub_raw)
+                except ValueError:
+                    subscription_days = None
+            expiry_date = exp[:10] if exp else ""
+            return ok(
+                {
+                    "perpetual": perpetual,
+                    "expiry_date": expiry_date,
+                    "days_left": days_left,
+                    "subscription_days": subscription_days,
+                },
+                "success",
+            )
+
         return err("endpoint license غير معروف")
 
     # ── META ──
@@ -1642,6 +1851,87 @@ def route(conn, method, resource, action, body, parts):
                     cr = rr["role"] or ""
             return ok(build_presence_list(conn, cr), "success")
 
+    # ── NOTIFICATIONS ──
+    if resource == "notifications":
+        cid = _caller_id(body)
+        if not cid:
+            return err("غير مصرح")
+        ur = c.execute(
+            "SELECT role, perms, active FROM users WHERE id=?", (cid,)
+        ).fetchone()
+        if not ur or not ur["active"]:
+            return err("مستخدم غير صالح")
+        role = ur["role"] or ""
+        try:
+            perms = json.loads(ur["perms"] or "{}")
+        except Exception:
+            perms = {}
+        if method == "GET" and action in ("", "list"):
+            rows = c.execute(
+                """SELECT n.*, CASE WHEN nr.user_id IS NULL THEN 0 ELSE 1 END AS read_flag
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id AND nr.user_id = ?
+                ORDER BY n.id DESC LIMIT 120""",
+                (cid,),
+            ).fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                rd = dict(row)
+                vis = rd.get("visible_roles")
+                kind = str(rd.get("kind") or "")
+                if not _user_can_see_notification(kind, vis, role, perms):
+                    continue
+                rd.pop("visible_roles", None)
+                rd["read"] = bool(rd.pop("read_flag", 0))
+                out.append(rd)
+            return ok(out, "success")
+        if method == "POST" and action == "mark_read":
+            if body.get("all"):
+                rows = c.execute(
+                    "SELECT id, kind, visible_roles FROM notifications ORDER BY id DESC LIMIT 120"
+                ).fetchall()
+                for row in rows:
+                    if not _user_can_see_notification(
+                        str(row["kind"] or ""),
+                        row["visible_roles"],
+                        role,
+                        perms,
+                    ):
+                        continue
+                    c.execute(
+                        "INSERT OR IGNORE INTO notification_reads (notification_id, user_id) VALUES (?,?)",
+                        (int(row["id"]), cid),
+                    )
+                return ok(msg="تم التحديث")
+            ids = body.get("ids")
+            if not isinstance(ids, list):
+                return err("أرسل ids كمصفوفة")
+            for nid in ids:
+                try:
+                    n_int = int(nid)
+                except (TypeError, ValueError):
+                    continue
+                row = c.execute(
+                    "SELECT kind, visible_roles FROM notifications WHERE id=?",
+                    (n_int,),
+                ).fetchone()
+                if not row:
+                    continue
+                if not _user_can_see_notification(
+                    str(row["kind"] or ""),
+                    row["visible_roles"],
+                    role,
+                    perms,
+                ):
+                    continue
+                c.execute(
+                    "INSERT OR IGNORE INTO notification_reads (notification_id, user_id) VALUES (?,?)",
+                    (n_int, cid),
+                )
+            return ok(msg="تم التحديث")
+        return err("إجراء غير معروف للإشعارات")
+
     # ── BACKUP استيراد/تصدير ──
     if resource == "backup":
         cid = _caller_id(body)
@@ -1702,7 +1992,15 @@ def route(conn, method, resource, action, body, parts):
                         _parse_center_share_value(body),
                     ),
                 )
-                return ok({"id": c.lastrowid}, "تم إضافة المدرس")
+                tid_new = int(c.lastrowid)
+                _notify_insert(
+                    c,
+                    "registry",
+                    "مدرّس جديد",
+                    f"{body.get('name') or ''} — {body.get('subject') or ''}"[:900],
+                    ["admin", "dev_master", "accountant", "receptionist"],
+                )
+                return ok({"id": tid_new}, "تم إضافة المدرس")
             if action == "update":
                 c.execute(
                     """UPDATE teachers SET name=?,subject=?,phone=?,salary=?,notes=?,
@@ -1761,6 +2059,13 @@ def route(conn, method, resource, action, body, parts):
                     if not tlink:
                         return err("⚠️ المعلم غير مربوط بمدرس — يرجى الإصلاح من إدارة المستخدمين")
                     body["teacher_id"] = tlink
+                tid_chk = body.get("teacher_id")
+                if tid_chk:
+                    em = _validate_teacher_matches_course_subject(
+                        c, int(tid_chk), str(body.get("name") or "")
+                    )
+                    if em:
+                        return err(em)
                 c.execute(
                     """INSERT INTO courses (name,group_name,teacher_id,fees,days,time,description,session_minutes)
                        VALUES (?,?,?,?,?,?,?,?)""",
@@ -1775,7 +2080,15 @@ def route(conn, method, resource, action, body, parts):
                         int(body.get("session_minutes") or 90),
                     ),
                 )
-                return ok({"id": c.lastrowid}, "تم إضافة المجموعة")
+                cid_new = int(c.lastrowid)
+                _notify_insert(
+                    c,
+                    "registry",
+                    "مجموعة / مادة جديدة",
+                    f"{body.get('name') or ''} — {body.get('group_name') or ''}"[:900],
+                    ["admin", "dev_master", "accountant", "receptionist"],
+                )
+                return ok({"id": cid_new}, "تم إضافة المجموعة")
             if action == "update":
                 caller_id = body.get("caller_id")
                 role = ""
@@ -1795,6 +2108,13 @@ def route(conn, method, resource, action, body, parts):
                         return err("🚫 لا يمكنك تعديل مجموعة ليست تابعة لك")
                     # فرض بقاء teacher_id الخاص بالمجموعة
                     body["teacher_id"] = tlink
+                tid_chk2 = body.get("teacher_id")
+                if tid_chk2:
+                    em2 = _validate_teacher_matches_course_subject(
+                        c, int(tid_chk2), str(body.get("name") or "")
+                    )
+                    if em2:
+                        return err(em2)
                 c.execute(
                     """UPDATE courses SET name=?,group_name=?,teacher_id=?,fees=?,days=?,time=?,description=?,
                        session_minutes=? WHERE id=?""",
@@ -1849,7 +2169,7 @@ def route(conn, method, resource, action, body, parts):
             # أعمدة الطالب صراحةً (بدون s.*) حتى لا يُستبدل center_share_* أو غيره بسبب تكرار أسماء الأعمدة في sqlite
             base_sql = """SELECT s.id, s.code, s.name, s.phone, s.parent_phone, s.parent_name, s.grade, s.course_id,
                 s.fees, s.notes, s.status, s.date, s.created_at, s.reg_teacher_id,
-                s.center_share_type, s.center_share_value, s.billing_mode,
+                s.center_share_type, s.center_share_value, s.billing_mode, s.link_group,
                 c.name AS course_name, c.group_name AS group_name, c.fees AS course_fees,
                 t.name AS teacher_name, t.id AS teacher_id,
                 tr.name AS reg_teacher_name
@@ -1894,40 +2214,149 @@ def route(conn, method, resource, action, body, parts):
                 pe = _validate_student_phones(body.get("phone", ""), body.get("parent_phone", ""))
                 if pe:
                     return err(pe)
-                code = next_student_code(conn)
-                reg_tid = _opt_positive_int_id(body.get("reg_teacher_id"))
+                raw_ex = body.get("additional_enrollments")
+                extras: List[Dict[str, Any]] = []
+                if isinstance(raw_ex, list):
+                    for it in raw_ex:
+                        if not isinstance(it, dict):
+                            continue
+                        xc = _opt_positive_int_id(it.get("course_id"))
+                        if xc:
+                            extras.append(
+                                {
+                                    "course_id": int(xc),
+                                    "reg_teacher_id": _opt_positive_int_id(it.get("reg_teacher_id")),
+                                }
+                            )
+                main_cid = _opt_positive_int_id(body.get("course_id"))
+                if not main_cid:
+                    return err("⚠️ اختر مجموعة للطالب")
+                all_cids = [main_cid] + [e["course_id"] for e in extras]
+                if len(all_cids) != len(set(all_cids)):
+                    return err("⚠️ لا يمكن اختيار نفس المجموعة أكثر من مرة")
+
+                def _course_row(cid0: int):
+                    return c.execute(
+                        "SELECT id, name, fees, teacher_id FROM courses WHERE id=?",
+                        (cid0,),
+                    ).fetchone()
+
+                cr0 = _course_row(main_cid)
+                if not cr0:
+                    return err("المجموعة غير موجودة")
+
+                def _reg_tid_for_course(cid0: int, reg_from_body: Any, crow) -> Optional[int]:
+                    rt = _opt_positive_int_id(reg_from_body)
+                    if rt:
+                        return int(rt)
+                    tid0 = _opt_positive_int_id(crow["teacher_id"]) if crow else None
+                    return int(tid0) if tid0 else None
+
+                reg_main = _reg_tid_for_course(main_cid, body.get("reg_teacher_id"), cr0)
+                if reg_main:
+                    em0 = _validate_teacher_matches_course_subject(
+                        c, reg_main, str(cr0["name"] or "")
+                    )
+                    if em0:
+                        return err(em0)
+
+                for ex in extras:
+                    crx = _course_row(int(ex["course_id"]))
+                    if not crx:
+                        return err("مجموعة غير موجودة")
+                    if role == "teacher":
+                        okc2 = c.execute(
+                            "SELECT id FROM courses WHERE id=? AND teacher_id=?",
+                            (ex["course_id"], tlink),
+                        ).fetchone()
+                        if not okc2:
+                            return err("🚫 لا يمكنك إضافة طالب لمجموعة ليست تابعة لك")
+                    rtx = _reg_tid_for_course(int(ex["course_id"]), ex.get("reg_teacher_id"), crx)
+                    if rtx:
+                        emx = _validate_teacher_matches_course_subject(
+                            c, rtx, str(crx["name"] or "")
+                        )
+                        if emx:
+                            return err(emx)
+
                 sh_t, sh_v = _student_share_override(body)
                 bm = body.get("billing_mode") or "monthly"
                 if bm not in ("monthly", "per_session"):
                     bm = "monthly"
+                link_group = str(uuid.uuid4()) if extras else None
+
+                code1 = next_student_code(conn)
+                fee_main = float(body.get("fees", 0) or 0)
                 c.execute(
                     """INSERT INTO students (code,name,phone,parent_phone,parent_name,grade,course_id,fees,notes,status,date,
-                       reg_teacher_id,center_share_type,center_share_value,billing_mode)
-                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       reg_teacher_id,center_share_type,center_share_value,billing_mode,link_group)
+                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        code,
+                        code1,
                         body["name"],
                         body.get("phone", ""),
                         body.get("parent_phone", ""),
                         body.get("parent_name", ""),
                         body.get("grade", ""),
-                        body.get("course_id") or None,
-                        body.get("fees", 0),
+                        main_cid,
+                        fee_main,
                         body.get("notes", ""),
                         body.get("status", "active"),
                         body.get("date", datetime.now().strftime("%Y-%m-%d")),
-                        reg_tid,
+                        reg_main,
                         sh_t,
                         sh_v,
                         bm,
+                        link_group,
                     ),
+                )
+                first_id = int(c.lastrowid)
+                out_codes = [code1]
+                for ex in extras:
+                    crx = _course_row(int(ex["course_id"]))
+                    rtx = _reg_tid_for_course(int(ex["course_id"]), ex.get("reg_teacher_id"), crx)
+                    fee_x = float(crx["fees"] or 0)
+                    code_n = next_student_code(conn)
+                    c.execute(
+                        """INSERT INTO students (code,name,phone,parent_phone,parent_name,grade,course_id,fees,notes,status,date,
+                           reg_teacher_id,center_share_type,center_share_value,billing_mode,link_group)
+                                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            code_n,
+                            body["name"],
+                            body.get("phone", ""),
+                            body.get("parent_phone", ""),
+                            body.get("parent_name", ""),
+                            body.get("grade", ""),
+                            int(ex["course_id"]),
+                            fee_x,
+                            body.get("notes", ""),
+                            body.get("status", "active"),
+                            body.get("date", datetime.now().strftime("%Y-%m-%d")),
+                            rtx,
+                            sh_t,
+                            sh_v,
+                            bm,
+                            link_group,
+                        ),
+                    )
+                    out_codes.append(code_n)
+                codes_txt = "، ".join(out_codes)
+                _notify_insert(
+                    c,
+                    "registry",
+                    "طالب جديد",
+                    f"{body.get('name') or ''} — أكواد: {codes_txt}"[:900],
+                    ["admin", "dev_master", "accountant", "receptionist"],
                 )
                 return ok(
                     {
-                        "id": c.lastrowid,
-                        "code": code,
+                        "id": first_id,
+                        "code": out_codes[0],
                         "center_share_type": sh_t,
                         "center_share_value": sh_v,
+                        "link_group": link_group,
+                        "linked_codes": out_codes[1:] if len(out_codes) > 1 else [],
                     },
                     "تم إضافة الطالب",
                 )
@@ -1959,6 +2388,20 @@ def route(conn, method, resource, action, body, parts):
                 if pe:
                     return err(pe)
                 reg_tid = _opt_positive_int_id(body.get("reg_teacher_id"))
+                cid_u = _opt_positive_int_id(body.get("course_id"))
+                if cid_u:
+                    cr_u = c.execute(
+                        "SELECT name, teacher_id FROM courses WHERE id=?",
+                        (cid_u,),
+                    ).fetchone()
+                    if cr_u:
+                        reg_chk = reg_tid or _opt_positive_int_id(cr_u["teacher_id"])
+                        if reg_chk:
+                            emu = _validate_teacher_matches_course_subject(
+                                c, int(reg_chk), str(cr_u["name"] or "")
+                            )
+                            if emu:
+                                return err(emu)
                 sh_t, sh_v = _student_share_override(body)
                 bm = body.get("billing_mode") or "monthly"
                 if bm not in ("monthly", "per_session"):
@@ -1998,7 +2441,17 @@ def route(conn, method, resource, action, body, parts):
                     return err("🚫 لا يمكن للمدرس حذف الطلاب — تواصل مع المدير")
                 if not _caller_allowed_hard_delete(conn, caller_id):
                     return err("🚫 الحذف يتطلب صلاحية «حذف السجلات» أو حساب مدير")
-                c.execute("DELETE FROM students WHERE id=?", (body["id"],))
+                sid_del = body.get("id")
+                if body.get("delete_linked"):
+                    row_lg = c.execute(
+                        "SELECT link_group FROM students WHERE id=?",
+                        (sid_del,),
+                    ).fetchone()
+                    lg = (row_lg["link_group"] or "").strip() if row_lg else ""
+                    if lg:
+                        c.execute("DELETE FROM students WHERE link_group=?", (lg,))
+                        return ok(msg="تم حذف التسجيلات المرتبطة")
+                c.execute("DELETE FROM students WHERE id=?", (sid_del,))
                 return ok(msg="تم الحذف")
 
     # ── PAYMENTS ──
@@ -2042,6 +2495,17 @@ def route(conn, method, resource, action, body, parts):
                     rno, rerr = _assign_payment_receipt_no(c, pid, body)
                     if rerr:
                         return err(rerr)
+                    stu_n = (stu_row["name"] if stu_row else "") or ""
+                    _notify_insert(
+                        c,
+                        "finance",
+                        "تسجيل دفعة",
+                        (
+                            f"{stu_n}: دفع {paid:g} (محاسبة بالحصة) — {body.get('method', 'cash')}"
+                            + (f" — بواسطة {body.get('by')}" if body.get("by") else "")
+                        )[:900],
+                        ["admin", "dev_master", "accountant"],
+                    )
                     return ok({"id": pid, "status": status, "receipt_no": rno}, "تم تسجيل الدفعة")
                 # ── شهري: التحقق من دفع الشهر ──
                 already  = c.execute(
@@ -2067,11 +2531,38 @@ def route(conn, method, resource, action, body, parts):
                 rno, rerr = _assign_payment_receipt_no(c, pid, body)
                 if rerr:
                     return err(rerr)
+                stu_n = (stu_row["name"] if stu_row else "") or ""
+                _notify_insert(
+                    c,
+                    "finance",
+                    "تسجيل دفعة",
+                    (
+                        f"{stu_n}: دفع {paid:g} — شهر {month} — {body.get('method', 'cash')}"
+                        + (f" — بواسطة {body.get('by')}" if body.get("by") else "")
+                    )[:900],
+                    ["admin", "dev_master", "accountant"],
+                )
                 return ok({"id": pid, "status": status, "receipt_no": rno}, "تم تسجيل الدفعة")
             if action == "delete":
                 if not _caller_allowed_hard_delete(conn, body.get("caller_id")):
                     return err("🚫 حذف الدفعة يتطلب صلاحية «حذف السجلات» أو حساب مدير")
+                prow = c.execute(
+                    """SELECT p.paid, p.month, s.name AS student_name FROM payments p
+                    LEFT JOIN students s ON p.student_id=s.id WHERE p.id=?""",
+                    (body["id"],),
+                ).fetchone()
                 c.execute("DELETE FROM payments WHERE id=?", (body["id"],))
+                if prow:
+                    _notify_insert(
+                        c,
+                        "finance",
+                        "حذف دفعة",
+                        (
+                            f"{prow['student_name'] or ''}: حذف سجل دفع {float(prow['paid'] or 0):g}"
+                            f" — {prow['month'] or ''}"
+                        )[:900],
+                        ["admin", "dev_master", "accountant"],
+                    )
                 return ok(msg="تم حذف الدفعة")
             if action == "fix_required":
                 # إصلاح حقل required لكل الدفعات: required = المتبقي وقت تسجيل الدفعة
@@ -2203,11 +2694,28 @@ def route(conn, method, resource, action, body, parts):
                 c.execute("INSERT INTO expenses (name,category,amount,date,note) VALUES (?,?,?,?,?)",
                           (body["name"],body.get("category","أخرى"),body.get("amount",0),
                            body.get("date",datetime.now().strftime("%Y-%m-%d")),body.get("note","")))
-                return ok({"id":c.lastrowid},"تم إضافة المصروف")
+                eid = int(c.lastrowid)
+                _notify_insert(
+                    c,
+                    "finance",
+                    "مصروف جديد",
+                    f"{body['name']}: {float(body.get('amount',0) or 0):g} — {body.get('category') or ''}"[:900],
+                    ["admin", "dev_master", "accountant"],
+                )
+                return ok({"id": eid}, "تم إضافة المصروف")
             if action == "delete":
                 if not _caller_allowed_hard_delete(conn, body.get("caller_id")):
                     return err("🚫 الحذف يتطلب صلاحية «حذف السجلات» أو حساب مدير")
+                er = c.execute("SELECT name, amount, category FROM expenses WHERE id=?", (body["id"],)).fetchone()
                 c.execute("DELETE FROM expenses WHERE id=?", (body["id"],))
+                if er:
+                    _notify_insert(
+                        c,
+                        "finance",
+                        "حذف مصروف",
+                        f"{er['name'] or ''}: {float(er['amount'] or 0):g}"[:900],
+                        ["admin", "dev_master", "accountant"],
+                    )
                 return ok(msg="تم الحذف")
 
     # ── USERS ──

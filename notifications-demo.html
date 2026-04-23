@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>مثال — نظام الإشعارات (Toast + Drawer)</title>
+  <!-- انسخ هذا الملف كـ index.html أو ادمج الروابط في مشروعك -->
+  <link rel="stylesheet" href="notifications.css" />
+  <style>
+    /* صفحة العرض فقط */
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #080f1a;
+      color: #c8d8ed;
+      font-family: 'Tajawal', 'Segoe UI', system-ui, sans-serif;
+    }
+    .demo-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 14px 20px;
+      background: #0f1928;
+      border-bottom: 1px solid #1a2a3e;
+    }
+    .demo-bar h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .demo-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .demo-actions button {
+      border: 1px solid #1a2a3e;
+      background: #0c1525;
+      color: #c8d8ed;
+      padding: 8px 14px;
+      border-radius: 9px;
+      font-weight: 800;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .demo-actions button:hover {
+      border-color: #4a9eda;
+      color: #4a9eda;
+    }
+    .demo-bell {
+      width: 42px;
+      height: 38px;
+      border-radius: 10px;
+      border: 1px solid #1a2a3e;
+      background: #0c1525;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .demo-bell:hover {
+      border-color: #e8a048;
+    }
+    .demo-main {
+      padding: 24px;
+      max-width: 720px;
+      line-height: 1.7;
+      font-size: 14px;
+      color: #5a7a9a;
+    }
+    .demo-main code {
+      background: #0c1525;
+      padding: 2px 8px;
+      border-radius: 6px;
+      color: #c8d8ed;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-bar">
+    <h1>🔔 تجربة NotifToast + NotifDrawer</h1>
+    <div class="demo-actions">
+      <button type="button" id="demo-bell" class="demo-bell" title="فتح لوحة الإشعارات">🔔</button>
+      <button type="button" onclick="NotifToast.show({ type: 'success', title: 'تم الحفظ', message: 'تم تسجيل الدفعة — 1200 جنيه', duration: 5000 })">Toast نجاح</button>
+      <button type="button" onclick="NotifToast.show({ type: 'warning', title: 'استرجاع مبلغ', message: 'سيد — 500 جنيه بواسطة موظف', duration: 5000 })">Toast تحذير</button>
+      <button type="button" onclick="NotifToast.show({ type: 'danger', title: 'خطأ', message: 'تعذّر الاتصال بالخادم', duration: 5000 })">Toast خطر</button>
+      <button type="button" onclick="NotifToast.show({ type: 'info', title: 'تنبيه', message: 'تم تحديث القائمة', duration: 5000 })">Toast معلومات</button>
+      <button type="button" onclick="NotifToast.dismissAll()">إغلاق كل التوستات</button>
+    </div>
+  </div>
+
+  <div class="demo-main">
+    <p><strong>الاستخدام:</strong></p>
+    <ul>
+      <li><code>NotifToast.show({ type, title, message?, duration? })</code></li>
+      <li><code>NotifDrawer.open()</code> / <code>NotifDrawer.close()</code></li>
+      <li><code>NotifDrawer.addNotif({ type, title, message, category, time? })</code> — الفئة: «مالية» أو «طلاب» أو أي نص يُصنَّف كنظام</li>
+    </ul>
+    <p>اضغط 🔔 لفتح الـ Drawer. يمكن ربط نفس الزر في تطبيقك عبر <code>NotifDrawer.bindBell('#top-notif-btn')</code>.</p>
+  </div>
+
+  <script src="notifications.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      NotifDrawer.init();
+      NotifDrawer.bindBell('#demo-bell');
+
+      // بيانات تجريبية داخل الـ Drawer
+      NotifDrawer.addNotif({
+        type: 'warning',
+        title: 'استرجاع مبلغ',
+        message: 'سيد — 500 جنيه',
+        category: 'مالية',
+        time: 'منذ دقيقة',
+      });
+      NotifDrawer.addNotif({
+        type: 'success',
+        title: 'طالب جديد',
+        message: 'تم تسجيل أحمد في مجموعة علوم',
+        category: 'طلاب',
+        time: 'منذ 5 دقائق',
+      });
+      NotifDrawer.addNotif({
+        type: 'info',
+        title: 'تحديث النظام',
+        message: 'تم تحميل البيانات بنجاح',
+        category: 'نظام',
+        time: 'أمس',
+      });
+    });
+  </script>
+</body>
+</html>
